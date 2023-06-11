@@ -14,8 +14,11 @@ from bs4 import BeautifulSoup
 import smtplib
 import random
 import json
+from pyfiglet import Figlet
+from colorama import init, Fore
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 import time
 import threading
 import os
@@ -24,6 +27,15 @@ import sys
 # Inicializamos una consola para rich
 console = Console()
 
+# Función para mostrar la cabecera y esperar 2 segundos
+def mostrar_cabecera():
+    fig = Figlet(font="standard")
+    ascii_art = fig.renderText("TRACKER.PY")
+    cabecera = Text(ascii_art)
+    cabecera.stylize("bold yellow")
+    console.print(cabecera)
+    time.sleep(2)
+    
 # Verificamos si el archivo de configuración del correo existe, si no, lo creamos
 if not os.path.isfile("email_config.json"):
     email_config = {
@@ -106,31 +118,68 @@ def add_product():
 
 # Actualiza un producto de la lista
 def update_product():
-    url = get_product_page_url()
-    soup = request_product_page(url)
-    title = soup.find(id="productTitle").get_text().strip()
-    for product in product_list:
-        if product["url"] == url:
-            product["title"] = title
-            console.print(f"Producto [green]{title}[/green] actualizado!", style="bold red")
-            break
-    else:
-        console.print(f"No se encontró el producto con la URL: {url}", style="bold red")
-    with open("product_list.json", "w") as file:
-        json.dump(product_list, file)
+    table = Table(title="Productos")
+    table.add_column("Índice", style="cyan")
+    table.add_column("Título", style="magenta")
+    for i, product in enumerate(product_list, start=1):
+        table.add_row(str(i), product["title"])
+    console.print(table)
+
+    choice = input("Ingrese el índice del producto a actualizar (0 para cancelar): ")
+    if choice == "0":
+        console.print("Operación cancelada.", style="bold yellow")
+        return
+
+    try:
+        index = int(choice) - 1
+        product = product_list[index]
+        console.print(f"Producto seleccionado: {product['title']}", style="bold green")
+        new_url = get_product_page_url()
+        new_soup = request_product_page(new_url)
+        new_title = new_soup.find(id="productTitle").get_text().strip()
+        confirm = input(f"¿Está seguro de que desea actualizar el producto '{product['title']}' con la nueva URL y título '{new_title}'? (s/n): ")
+        if confirm.lower() == "s":
+            product["url"] = new_url
+            product["title"] = new_title
+            with open("product_list.json", "w") as file:
+                json.dump(product_list, file)
+            console.print(f"Producto '{product['title']}' actualizado.", style="bold red")
+        else:
+            console.print("Operación cancelada.", style="bold yellow")
+    except ValueError:
+        console.print("Índice inválido. Por favor, ingrese un número válido.", style="bold red")
+    except IndexError:
+        console.print("Índice fuera de rango. Por favor, ingrese un índice válido.", style="bold red")
 
 # Elimina un producto de la lista
 def delete_product():
-    url = get_product_page_url()
-    for product in product_list:
-        if product["url"] == url:
-            product_list.remove(product)
-            console.print(f"Producto [green]{product['title']}[/green] eliminado!", style="bold red")
-            break
-    else:
-        console.print(f"No se encontró el producto con la URL: {url}", style="bold red")
-    with open("product_list.json", "w") as file:
-        json.dump(product_list, file)
+    table = Table(title="Productos")
+    table.add_column("Índice", style="cyan")
+    table.add_column("Título", style="magenta")
+    for i, product in enumerate(product_list, start=1):
+        table.add_row(str(i), product["title"])
+    console.print(table)
+
+    choice = input("Ingrese el índice del producto a eliminar (0 para cancelar): ")
+    if choice == "0":
+        console.print("Operación cancelada.", style="bold yellow")
+        return
+
+    try:
+        index = int(choice) - 1
+        product = product_list[index]
+        confirm = input(f"¿Está seguro de que desea eliminar el producto '{product['title']}'? (s/n): ")
+        if confirm.lower() == "s":
+            product_list.pop(index)
+            with open("product_list.json", "w") as file:
+                json.dump(product_list, file)
+            console.print(f"Producto '{product['title']}' eliminado.", style="bold red")
+        else:
+            console.print("Operación cancelada.", style="bold yellow")
+    except ValueError:
+        console.print("Índice inválido. Por favor, ingrese un número válido.", style="bold red")
+    except IndexError:
+        console.print("Índice fuera de rango. Por favor, ingrese un índice válido.", style="bold red")
 
 # Verifica un producto
 def check_single_product(product):
@@ -143,6 +192,32 @@ def check_single_product(product):
             json.dump(product_list, file)
         console.print(f"Producto [green]{title}[/green] actualizado!", style="bold red")
         send_mail(product, "Precio reducido")
+
+# Función que verifica un producto
+def check_single_product_inscreen(product):
+    url = product["url"]
+    soup = request_product_page(url)
+    title = soup.find(id="productTitle").get_text().strip()
+    if title != product["title"]:
+        price_change = soup.find(id="priceblock_ourprice")
+        if price_change:
+            console.print(f"¡Hay un cambio en el precio del producto '{product['title']}'!", style="bold yellow")
+            console.print(f"Precio anterior: {product['price']}", style="bold cyan")
+            console.print(f"Precio actual: {price_change.get_text().strip()}", style="bold cyan")
+            product["price"] = price_change.get_text().strip()
+            with open("product_list.json", "w") as file:
+                json.dump(product_list, file)
+        else:
+            console.print(f"¡Hay un cambio en el título del producto '{product['title']}'!", style="bold yellow")
+            console.print(f"Título anterior: {product['title']}", style="bold cyan")
+            console.print(f"Título actual: {title}", style="bold cyan")
+            product["title"] = title
+            with open("product_list.json", "w") as file:
+                json.dump(product_list, file)
+    else:
+        console.print(f"No hay cambios en el producto '{product['title']}'", style="bold green")
+    
+    time.sleep(3)
 
 # Función que verifica un producto de forma periódica
 def periodic_check_single_product(product):
@@ -174,6 +249,31 @@ def send_mail(product, reason):
     console.print('¡Correo electrónico enviado!', style="bold green")
     server.quit()
 
+# Verifica un producto específico
+def check_product():
+    clear_terminal()
+    table = Table(title="Productos")
+    table.add_column("Índice", style="cyan")
+    table.add_column("Título", style="magenta")
+    for i, product in enumerate(product_list, start=1):
+        table.add_row(str(i), product["title"])
+    console.print(table)
+
+    choice = input("Ingrese el índice del producto a verificar (0 para cancelar): ")
+    if choice == "0":
+        console.print("Operación cancelada.", style="bold yellow")
+        return
+
+    try:
+        index = int(choice) - 1
+        product = product_list[index]
+        console.print(f"Verificando producto: {product['title']}", style="bold blue")
+        check_single_product_inscreen(product)
+    except ValueError:
+        console.print("Índice inválido. Por favor, ingrese un número válido.", style="bold red")
+    except IndexError:
+        console.print("Índice fuera de rango. Por favor, ingrese un índice válido.", style="bold red")
+
 # Muestra el menú
 def show_menu():
     time.sleep(1)
@@ -185,6 +285,7 @@ def show_menu():
         "Añadir producto",
         "Actualizar producto",
         "Eliminar producto",
+        "Verificar producto",
         "Salir"
     ]
     for i, option in enumerate(options, start=1):
@@ -192,6 +293,9 @@ def show_menu():
     console.print(table)
 
 if __name__ == "__main__":
+    console.clear()
+    mostrar_cabecera()
+        
     # Verificar todos los productos periódicamente
     periodic_check_all_products()
     while True:
@@ -205,6 +309,8 @@ if __name__ == "__main__":
             elif choice == "3":
                 delete_product()
             elif choice == "4":
+                check_product()
+            elif choice == "5":
                 console.print("Ciao!", style="bold green")
                 time.sleep(1)
                 clear_terminal()
